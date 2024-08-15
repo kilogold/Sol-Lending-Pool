@@ -47,14 +47,14 @@ describe("lending-pool", () => {
     // Address for Mint Account
     const mint = mintKeypair.publicKey;
     // Decimals for Mint Account
-    const decimals = 2;
+    const decimals = 9;
     // Authority that can mint new tokens
     const mintAuthority = provider.wallet as anchor.Wallet;
     // Authority that can update the interest rate
     const rateAuthority = provider.wallet;
     // Interest rate basis points (100 = 1%)
     // Max value = 32,767 (i16)
-    const rate = 32_767;
+    const rate = 0;
 
     // Size of Mint Account with extension
     const mintLen = getMintLen([ExtensionType.InterestBearingConfig]);
@@ -107,7 +107,7 @@ describe("lending-pool", () => {
         await connection.requestAirdrop(holderB.publicKey, totalAirdropHolderB); // 3 SOL + rent exemption
     });
 
-    it("Creates a token Mint account with Interest Bearing extension", async () => {
+    it("Creates a token Mint account with Interest Bearing extension", async () =>{
 
         // Minimum lamports required for Mint Account
         const lamports = await connection.getMinimumBalanceForRentExemption(mintLen);
@@ -234,29 +234,29 @@ describe("lending-pool", () => {
             .rpc();
 
         // Check balances of iSOL tokens in HolderA and HolderB's ATAs
-        const holderABalance = await connection.getTokenAccountBalance(holderAATA);
-        const holderBBalance = await connection.getTokenAccountBalance(holderBATA);
+        const holderA_iSolBalance = await connection.getTokenAccountBalance(holderAATA);
+        const holderB_iSolBalance = await connection.getTokenAccountBalance(holderBATA);
 
-        console.log("HolderA iSOL Balance:", holderABalance.value.uiAmount);
-        console.log("HolderB iSOL Balance:", holderBBalance.value.uiAmount);
+        const holderA_iSolBalanceInSOL = holderA_iSolBalance.value.uiAmount;
+        const holderB_iSolBalanceInSOL = holderB_iSolBalance.value.uiAmount;
 
         // Convert amount to UI amount with accrued interest
-        const holderA_ValueAmount = await amountToUiAmount(
+        const holderA_AccruedValueAmount = await amountToUiAmount(
             connection, // Connection to the Solana cluster
             payer.payer, // Account that will transfer lamports for the transaction
             mint, // Address of the Mint account
-            holderABalance.value.uiAmount, // Amount to be converted
+            BigInt(holderA_iSolBalance.value.amount), // Amount to be converted
             TOKEN_2022_PROGRAM_ID, // Token Extension Program ID
         );
-        const holderB_ValueAmount = await amountToUiAmount(
+        const holderB_AccruedValueAmount = await amountToUiAmount(
             connection, // Connection to the Solana cluster
             payer.payer, // Account that will transfer lamports for the transaction
             mint, // Address of the Mint account
-            holderBBalance.value.uiAmount, // Amount to be converted
+            BigInt(holderB_iSolBalance.value.amount), // Amount to be converted
             TOKEN_2022_PROGRAM_ID, // Token Extension Program ID
         );
 
-        console.log(`HolderA - iSOL Value: ${holderA_ValueAmount}`);
-        console.log(`HolderB - iSOL Value: ${holderB_ValueAmount}`);
+        console.log(`HolderA Balance: ${holderA_iSolBalanceInSOL} iSOL = ${holderA_AccruedValueAmount} SOL`);
+        console.log(`HolderB Balance: ${holderB_iSolBalanceInSOL} iSOL = ${holderB_AccruedValueAmount} SOL`);
     });
 });
