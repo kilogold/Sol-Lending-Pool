@@ -26,14 +26,7 @@ declare_id!("Dc3diDtBztbtXgnLtHHn8MnPjjiGHBK5AfxQ5GHWGSXQ");
 pub mod lending_pool {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        // Ensure the pool PDA matches the expected address
-        require_keys_eq!(
-            ctx.accounts.pool_pda.key(),
-            ctx.accounts.pool.key(),
-            LendingPoolError::InvalidPoolPDA
-        );
-
+    pub fn initialize(_ctx: Context<Initialize>) -> Result<()> {
         // Additional initialization logic if needed
 
         Ok(())
@@ -118,8 +111,6 @@ pub struct Initialize<'info> {
         bump
     )]
     /// CHECK: This is a read-only account
-    pub pool: UncheckedAccount<'info>,
-    /// CHECK: This is a read-only account
     pub pool_pda: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -142,8 +133,12 @@ pub struct Deposit<'info> {
     pub mint: InterfaceAccount<'info, Mint>,
     /// CHECK: This is a read-only account
     pub mint_authority: AccountInfo<'info>,
+    #[account(
+        mut,
+        seeds = [b"pool"],
+        bump
+    )]
     /// CHECK: This is a well-known account
-    #[account(mut)]
     pub pool_pda: AccountInfo<'info>,
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
@@ -163,8 +158,6 @@ pub struct Registration<'info> {
     )]
     pub depositor_ata: InterfaceAccount<'info, TokenAccount>,
     pub mint: InterfaceAccount<'info, Mint>,
-    /// CHECK: This is a read-only account
-    pub pool_pda: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token2022>,
     pub associated_token_program: Program<'info, AssociatedToken>,

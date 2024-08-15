@@ -161,7 +161,6 @@ describe("lending-pool", () => {
         const tx = await program.methods.initialize()
             .accounts({
                 payer: provider.wallet.publicKey,
-                poolPda: poolPda,
             })
             .signers([payer.payer])
             .rpc();
@@ -178,7 +177,6 @@ describe("lending-pool", () => {
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
                 depositorAta: holderAATA,
-                poolPda: poolPda,
             })
             .signers([holderA])
             .rpc();
@@ -192,7 +190,6 @@ describe("lending-pool", () => {
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
                 depositorAta: holderBATA,
-                poolPda: poolPda,
             })
             .signers([holderB])
             .rpc();
