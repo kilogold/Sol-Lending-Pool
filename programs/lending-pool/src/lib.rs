@@ -26,9 +26,8 @@ declare_id!("Dc3diDtBztbtXgnLtHHn8MnPjjiGHBK5AfxQ5GHWGSXQ");
 pub mod lending_pool {
     use super::*;
 
-    pub fn initialize(_ctx: Context<Initialize>) -> Result<()> {
+    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         // Additional initialization logic if needed
-
         Ok(())
     }
 
@@ -110,9 +109,23 @@ pub struct Initialize<'info> {
         seeds = [b"pool"],
         bump
     )]
-    /// CHECK: This is a read-only account
+    /// CHECK: Doesn't do anything, just holds SOL.
     pub pool_pda: UncheckedAccount<'info>,
+    #[account(
+        init,
+        payer = payer,
+        token::mint = collateral_mint,
+        token::authority = collateral_ta_pda,
+        mint::token_program = token_program,
+        seeds = [b"collateral"],
+        bump
+    )]
+    pub collateral_ta_pda: InterfaceAccount<'info, TokenAccount>,
+    pub collateral_mint: InterfaceAccount<'info, Mint>,
     pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token2022>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]
@@ -132,13 +145,13 @@ pub struct Deposit<'info> {
     #[account(mut)]
     pub mint: InterfaceAccount<'info, Mint>,
     /// CHECK: This is a read-only account
-    pub mint_authority: AccountInfo<'info>,
+    pub mint_authority: AccountInfo<'info>, //TODO: Make a PDA be the authority. 
     #[account(
         mut,
         seeds = [b"pool"],
         bump
     )]
-    /// CHECK: This is a well-known account
+    /// CHECK: Well-known account.
     pub pool_pda: AccountInfo<'info>,
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,

@@ -81,6 +81,12 @@ describe("lending-pool", () => {
         program.programId
     );
 
+    // Generate new keypair for USDC Mint Account
+    const usdcMintKeypair = Keypair.generate();
+    const usdcMint = usdcMintKeypair.publicKey;
+    const usdcDecimals = 6; // USDC typically has 6 decimals
+    const usdcMintAuthority = provider.wallet as anchor.Wallet;
+
     // Print all public keys generated above
     console.log("HolderA ATA:", holderAATA.toBase58());
     console.log("HolderB ATA:", holderBATA.toBase58());
@@ -95,6 +101,48 @@ describe("lending-pool", () => {
     console.log("Associated Token Program:", ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
     console.log("Lending Pool Program:", program.programId.toBase58());
     console.log("Pool PDA:", poolPda.toBase58());
+    console.log("USDC Mint:", usdcMint.toBase58());
+    console.log("USDC Mint Authority:", usdcMintAuthority.publicKey.toBase58());
+
+    it("Creates a dummy USDC Mint account", async () => {
+
+        // Minimum lamports required for USDC Mint Account
+        const usdcMintLen = getMintLen([]); // Assuming USDC mint has no extensions
+        const usdcLamports = await connection.getMinimumBalanceForRentExemption(usdcMintLen);
+
+        // Instruction to invoke System Program to create new account
+        const createUsdcAccountInstruction = SystemProgram.createAccount({
+            fromPubkey: payer.publicKey, // Account that will transfer lamports to created account
+            newAccountPubkey: usdcMint, // Address of the account to create
+            space: usdcMintLen, // Amount of bytes to allocate to the created account
+            lamports: usdcLamports, // Amount of lamports transferred to created account
+            programId: TOKEN_2022_PROGRAM_ID, // Program assigned as owner of created account
+        });
+
+        // Instruction to initialize Mint Account data
+        const initializeUsdcMintInstruction = createInitializeMintInstruction(
+            usdcMint, // Mint Account Address
+            usdcDecimals, // Decimals of Mint
+            usdcMintAuthority.publicKey, // Designated Mint Authority
+            null, // Optional Freeze Authority
+            TOKEN_2022_PROGRAM_ID, // Token Extension Program ID
+        );
+
+        // Add instructions to new transaction
+        const usdcTransaction = new Transaction().add(
+            createUsdcAccountInstruction,
+            initializeUsdcMintInstruction,
+        );
+
+        // Send transaction
+        const usdcTransactionSignature = await sendAndConfirmTransaction(
+            connection,
+            usdcTransaction,
+            [payer.payer, usdcMintKeypair], // Signers
+        );
+
+        logTransactionSignature(usdcTransactionSignature);
+    });
 
     it("Airdrops SOL to HolderA and HolderB", async () => {
         const rentExemptionForSystemAccount = await connection.getMinimumBalanceForRentExemption(0);
@@ -107,7 +155,7 @@ describe("lending-pool", () => {
         await connection.requestAirdrop(holderB.publicKey, totalAirdropHolderB); // 3 SOL + rent exemption
     });
 
-    it("Creates a token Mint account with Interest Bearing extension", async () =>{
+    it("Creates a token Mint account with Interest Bearing extension", async () => {
 
         // Minimum lamports required for Mint Account
         const lamports = await connection.getMinimumBalanceForRentExemption(mintLen);
@@ -161,6 +209,7 @@ describe("lending-pool", () => {
         const tx = await program.methods.initialize()
             .accounts({
                 payer: provider.wallet.publicKey,
+                collateralMint: usdcMint,
             })
             .signers([payer.payer])
             .rpc();
