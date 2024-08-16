@@ -25,6 +25,8 @@ import {
     getAssociatedTokenAddressSync,
     mintTo,
     getOrCreateAssociatedTokenAccount,
+    createSetAuthorityInstruction,
+    AuthorityType
 } from "@solana/spl-token";
 import { expect } from "chai";
 
@@ -51,7 +53,7 @@ describe("lending-pool", () => {
     // Decimals for Mint Account
     const iSolDecimals = 9;
     // Authority that can mint new tokens
-    const iSolMintAuthority = provider.wallet as anchor.Wallet;
+    let iSolMintAuthority = (provider.wallet as anchor.Wallet).publicKey;
     // Authority that can update the interest rate
     const iSolRateAuthority = provider.wallet;
     // Interest rate basis points (100 = 1%)
@@ -105,15 +107,22 @@ describe("lending-pool", () => {
         program.programId
     );
 
+    // Derive the PDA for the iSOL Mint authority
+    const [pda_iSolMintAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("isol_mint_auth")],
+        program.programId
+    );
+
     // Print all public keys generated above
     console.log("HolderA ATA:", holderAATA.toBase58());
     console.log("HolderB ATA:", holderBATA.toBase58());
     console.log("BorrowerA ATA:", borrowerAATA.toBase58());
-    console.log("Mint:", iSolMint.toBase58());
     console.log("HolderA:", holderA.publicKey.toBase58());
     console.log("HolderB:", holderB.publicKey.toBase58());
     console.log("BorrowerA:", borrowerA.publicKey.toBase58());
-    console.log("Mint Authority:", iSolMintAuthority.publicKey.toBase58());
+    console.log("iSol Mint:", iSolMint.toBase58());
+    console.log("iSol Mint Authority BEFORE init:", iSolMintAuthority.toBase58());
+    console.log("iSol Mint Authority AFTER init:", pda_iSolMintAuthority.toBase58());
     console.log("Rate Authority:", iSolRateAuthority.publicKey.toBase58());
     console.log("Payer:", payer.publicKey.toBase58());
     console.log("System Program:", SystemProgram.programId.toBase58());
@@ -125,7 +134,7 @@ describe("lending-pool", () => {
     console.log("USDC Mint Authority:", usdcMintAuthority.publicKey.toBase58());
 
     it("Creates a dummy USDC Mint account", async () => {
-        
+
         // Minimum lamports required for USDC Mint Account
         const usdcLamports = await connection.getMinimumBalanceForRentExemption(usdcMintLen);
 
@@ -161,7 +170,7 @@ describe("lending-pool", () => {
         );
 
         logTransactionSignature(usdcTransactionSignature);
-        
+
         // Create a new throw-away ATA for testing
         const throwAwayATA = await createAssociatedTokenAccount(
             connection,
@@ -233,7 +242,7 @@ describe("lending-pool", () => {
         const initializeMintInstruction = createInitializeMintInstruction(
             iSolMint, // Mint Account Address
             iSolDecimals, // Decimals of Mint
-            iSolMintAuthority.publicKey, // Designated Mint Authority
+            iSolMintAuthority, // Designated Mint Authority
             null, // Optional Freeze Authority
             TOKEN_2022_PROGRAM_ID, // Token Extension Program ID
         );
@@ -253,10 +262,9 @@ describe("lending-pool", () => {
         );
 
         logTransactionSignature(transactionSignature);
-
     });
 
-    it("Pool is initialized!", async () => {
+    it("Lending Program is initialized!", async () => {
         const tx = await program.methods.initialize()
             .accounts({
                 payer: provider.wallet.publicKey,
@@ -266,6 +274,31 @@ describe("lending-pool", () => {
             .rpc();
 
         logTransactionSignature(tx);
+
+        // Transfer authority to PDA.
+        // Add instruction to new transaction
+        const setAuthorityTransaction = new Transaction().add(
+            createSetAuthorityInstruction(
+                iSolMint,
+                iSolMintAuthority,
+                AuthorityType.MintTokens,
+                pda_iSolMintAuthority,
+                [],
+                TOKEN_2022_PROGRAM_ID
+            )
+        );
+
+        // Send transaction
+        const setAuthoritySignature = await sendAndConfirmTransaction(
+            connection,
+            setAuthorityTransaction,
+            [payer.payer],
+        );
+
+        logTransactionSignature(setAuthoritySignature);
+
+        iSolMintAuthority = pda_iSolMintAuthority;
+        console.log(`iSOL Mint authority set to PDA: ${iSolMintAuthority.toBase58()}`);
     });
 
     it("Registers depositors", async () => {
@@ -305,29 +338,29 @@ describe("lending-pool", () => {
         await program.methods.deposit(new anchor.BN(2 * LAMPORTS_PER_SOL)) // 2 SOL
             .accountsStrict({
                 depositor: holderA.publicKey,
-                mint: iSolMint,
-                mintAuthority: iSolMintAuthority.publicKey, // Your mint authority public key
+                isolMint: iSolMint,
+                isolMintAuthority: iSolMintAuthority,
                 depositorAta: holderAATA,
                 systemProgram: SystemProgram.programId,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
                 poolPda: poolPda,
             })
-            .signers([holderA, iSolMintAuthority.payer])
+            .signers([holderA])
             .rpc();
 
         await program.methods.deposit(new anchor.BN(3 * LAMPORTS_PER_SOL)) // 3 SOL
             .accountsStrict({
                 depositor: holderB.publicKey,
-                mint: iSolMint,
-                mintAuthority: iSolMintAuthority.publicKey, // Your mint authority public key
+                isolMint: iSolMint,
+                isolMintAuthority: iSolMintAuthority,
                 depositorAta: holderBATA,
                 systemProgram: SystemProgram.programId,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 poolPda: poolPda,
                 associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
             })
-            .signers([holderB, iSolMintAuthority.payer])
+            .signers([holderB])
             .rpc();
 
         // Check balances of iSOL tokens in HolderA and HolderB's ATAs

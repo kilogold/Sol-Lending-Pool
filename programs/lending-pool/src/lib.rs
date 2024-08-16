@@ -90,12 +90,20 @@ pub mod lending_pool {
 
         // Mint iSOL tokens to the depositor's associated token account
         let cpi_accounts = token_2022::MintTo {
-            mint: ctx.accounts.mint.to_account_info(),
+            mint: ctx.accounts.isol_mint.to_account_info(),
             to: ctx.accounts.depositor_ata.to_account_info(),
-            authority: ctx.accounts.mint_authority.to_account_info(),
+            authority: ctx.accounts.isol_mint_authority.to_account_info(),
         };
         let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+        
+
+        let isol_mint_auth_seeds:&[&[&[u8]]] = &[&[b"isol_mint_auth", &[ctx.bumps.isol_mint_authority]]];
+        
+        let cpi_ctx = CpiContext::new_with_signer(
+            cpi_program, 
+            cpi_accounts,
+            &isol_mint_auth_seeds,
+        );
         token_2022::mint_to(cpi_ctx, amount)?;
 
         // Update total deposits
@@ -230,16 +238,22 @@ pub struct Deposit<'info> {
     #[account(
         init_if_needed, // HACK: I don't know why I can't just use mut.
         payer = depositor,
-        associated_token::mint = mint,
+        associated_token::mint = isol_mint,
         associated_token::authority = depositor,
         mint::token_program = token_program,
     )]
     pub depositor_ata: InterfaceAccount<'info, TokenAccount>,
 
     #[account(mut)]
-    pub mint: InterfaceAccount<'info, Mint>,
-    /// CHECK: This is a read-only account
-    pub mint_authority: AccountInfo<'info>, //TODO: Make a PDA be the authority.
+    pub isol_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        mut,
+        seeds = [b"isol_mint_auth"],
+        bump
+    )]
+    /// CHECK: Well-known account.
+    pub isol_mint_authority: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [b"pool"],
