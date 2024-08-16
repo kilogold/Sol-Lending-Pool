@@ -20,6 +20,9 @@ use anchor_spl::{
     },
 };
 
+mod types;
+use types::*;
+
 declare_id!("Dc3diDtBztbtXgnLtHHn8MnPjjiGHBK5AfxQ5GHWGSXQ");
 
 #[program]
@@ -27,7 +30,8 @@ pub mod lending_pool {
     use super::*;
 
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        // Additional initialization logic if needed
+        ctx.accounts.pool.total_deposits = 0;
+        ctx.accounts.pool.total_borrows = 0;
         Ok(())
     }
 
@@ -94,11 +98,19 @@ pub mod lending_pool {
         let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
         token_2022::mint_to(cpi_ctx, amount)?;
 
+        // Update total deposits
+        ctx.accounts.pool_pda.total_deposits = ctx.accounts.pool_pda.total_deposits.checked_add(amount)
+            .ok_or(LendingPoolError::MathOverflow)?;
+
         Ok(())
     }
 
     pub fn borrow(ctx: Context<Borrow>, amount: u64) -> Result<()> {
         msg!("Borrower ATA Address: {}", ctx.accounts.borrower_ata.key());
+
+        // Ensure the pool has enough available SOL to borrow
+        let available_borrows = calculate_available_borrows(&ctx.accounts.pool_pda);
+        require!(available_borrows >= amount, LendingPoolError::NotEnoughAvailableBorrows);
 
         // Determine the required collateral
         let required_collateral = calculate_required_collateral(amount)?;
@@ -126,6 +138,10 @@ pub mod lending_pool {
             .to_account_info()
             .try_borrow_mut_lamports()? += amount;
 
+        // Update total borrows
+        ctx.accounts.pool_pda.total_borrows = ctx.accounts.pool_pda.total_borrows.checked_add(amount)
+            .ok_or(LendingPoolError::MathOverflow)?;
+
         Ok(())
     }
 }
@@ -136,6 +152,10 @@ fn calculate_required_collateral(amount: u64) -> Result<u64> {
     Ok(amount)
 }
 
+fn calculate_available_borrows(pool: &PoolState) -> u64 {
+    pool.total_deposits - pool.total_borrows
+}
+
 #[derive(Accounts)]
 pub struct Initialize<'info> {
     #[account(mut)]
@@ -143,12 +163,11 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = payer,
-        space = 8, // Anchor Discriminator
+        space = DISCRIMINATOR + PoolState::len(),
         seeds = [b"pool"],
         bump
     )]
-    /// CHECK: Doesn't do anything, just holds SOL.
-    pub pool_pda: UncheckedAccount<'info>,
+    pub pool: Account<'info, PoolState>,
     #[account(
         init,
         payer = payer,
@@ -189,7 +208,7 @@ pub struct Borrow<'info> {
         bump
     )]
     /// CHECK: Well-known account.
-    pub pool_pda: AccountInfo<'info>,
+    pub pool_pda: Account<'info, PoolState>,
 
     #[account(
         mut,
@@ -227,7 +246,7 @@ pub struct Deposit<'info> {
         bump
     )]
     /// CHECK: Well-known account.
-    pub pool_pda: AccountInfo<'info>,
+    pub pool_pda: Account<'info, PoolState>,
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -251,6 +270,17 @@ pub struct Registration<'info> {
     pub associated_token_program: Program<'info, AssociatedToken>,
 }
 
+#[account]
+pub struct PoolState {
+    pub total_deposits: u64,
+    pub total_borrows: u64,
+}
+impl PoolState {
+    pub fn len() -> usize {
+        U64 + U64
+    }
+}
+
 #[error_code]
 pub enum LendingPoolError {
     #[msg("Invalid pool PDA")]
@@ -258,4 +288,10 @@ pub enum LendingPoolError {
 
     #[msg("Depositor has a non-zero iSOL balance")]
     NonZeroBalance,
+
+    #[msg("Math overflow")]
+    MathOverflow,
+
+    #[msg("Not enough available SOL to borrow")]
+    NotEnoughAvailableBorrows,
 }
