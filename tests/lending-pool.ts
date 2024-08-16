@@ -23,7 +23,10 @@ import {
     getMint,
     createAssociatedTokenAccount,
     getAssociatedTokenAddressSync,
+    mintTo,
+    getOrCreateAssociatedTokenAccount,
 } from "@solana/spl-token";
+import { expect } from "chai";
 
 function logTransactionSignature(transactionSignature: string) {
     const cluster = "custom&customUrl=http%3A%2F%2Flocalhost%3A8899";
@@ -43,34 +46,49 @@ describe("lending-pool", () => {
     const payer = provider.wallet as anchor.Wallet;
 
     // Generate new keypair for Mint Account
-    const mintKeypair = Keypair.generate();
-    // Address for Mint Account
-    const mint = mintKeypair.publicKey;
+    const iSolMintKeypair = Keypair.generate();
+    const iSolMint = iSolMintKeypair.publicKey;
     // Decimals for Mint Account
-    const decimals = 9;
+    const iSolDecimals = 9;
     // Authority that can mint new tokens
-    const mintAuthority = provider.wallet as anchor.Wallet;
+    const iSolMintAuthority = provider.wallet as anchor.Wallet;
     // Authority that can update the interest rate
-    const rateAuthority = provider.wallet;
+    const iSolRateAuthority = provider.wallet;
     // Interest rate basis points (100 = 1%)
     // Max value = 32,767 (i16)
-    const rate = 0;
-
+    const iSolRate = 0;
     // Size of Mint Account with extension
-    const mintLen = getMintLen([ExtensionType.InterestBearingConfig]);
+    const iSolMintLen = getMintLen([ExtensionType.InterestBearingConfig]);
+
+    // Generate new keypair for USDC Mint Account
+    const usdcMintKeypair = Keypair.generate();
+    const usdcMint = usdcMintKeypair.publicKey;
+    const usdcDecimals = 6; // USDC typically has 6 decimals
+    const usdcMintAuthority = provider.wallet as anchor.Wallet;
+    const usdcMintLen = getMintLen([]); // Assuming USDC mint has no extensions
+
 
     // Generate new keypairs for HolderA and HolderB
     const holderA = Keypair.generate();
     const holderB = Keypair.generate();
     const holderAATA = getAssociatedTokenAddressSync(
-        mint, // Mint address
+        iSolMint, // Mint address
         holderA.publicKey, // Owner's public key
         false, // Allow owner off curve (default: false)
         TOKEN_2022_PROGRAM_ID // Token program ID
     );
     const holderBATA = getAssociatedTokenAddressSync(
-        mint, // Mint address
+        iSolMint, // Mint address
         holderB.publicKey, // Owner's public key
+        false, // Allow owner off curve (default: false)
+        TOKEN_2022_PROGRAM_ID // Token program ID
+    );
+
+    // Generate new keypair for BorrowerA
+    const borrowerA = Keypair.generate();
+    const borrowerAATA = getAssociatedTokenAddressSync(
+        usdcMint, // Mint address
+        borrowerA.publicKey, // Owner's public key
         false, // Allow owner off curve (default: false)
         TOKEN_2022_PROGRAM_ID // Token program ID
     );
@@ -81,20 +99,22 @@ describe("lending-pool", () => {
         program.programId
     );
 
-    // Generate new keypair for USDC Mint Account
-    const usdcMintKeypair = Keypair.generate();
-    const usdcMint = usdcMintKeypair.publicKey;
-    const usdcDecimals = 6; // USDC typically has 6 decimals
-    const usdcMintAuthority = provider.wallet as anchor.Wallet;
+    // Derive the PDA address for the collateral_ta_pda
+    const [collateralTaPda, _] = anchor.web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("collateral")],
+        program.programId
+    );
 
     // Print all public keys generated above
     console.log("HolderA ATA:", holderAATA.toBase58());
     console.log("HolderB ATA:", holderBATA.toBase58());
-    console.log("Mint:", mint.toBase58());
+    console.log("BorrowerA ATA:", borrowerAATA.toBase58());
+    console.log("Mint:", iSolMint.toBase58());
     console.log("HolderA:", holderA.publicKey.toBase58());
     console.log("HolderB:", holderB.publicKey.toBase58());
-    console.log("Mint Authority:", mintAuthority.publicKey.toBase58());
-    console.log("Rate Authority:", rateAuthority.publicKey.toBase58());
+    console.log("BorrowerA:", borrowerA.publicKey.toBase58());
+    console.log("Mint Authority:", iSolMintAuthority.publicKey.toBase58());
+    console.log("Rate Authority:", iSolRateAuthority.publicKey.toBase58());
     console.log("Payer:", payer.publicKey.toBase58());
     console.log("System Program:", SystemProgram.programId.toBase58());
     console.log("Token Program:", TOKEN_2022_PROGRAM_ID.toBase58());
@@ -105,9 +125,8 @@ describe("lending-pool", () => {
     console.log("USDC Mint Authority:", usdcMintAuthority.publicKey.toBase58());
 
     it("Creates a dummy USDC Mint account", async () => {
-
+        
         // Minimum lamports required for USDC Mint Account
-        const usdcMintLen = getMintLen([]); // Assuming USDC mint has no extensions
         const usdcLamports = await connection.getMinimumBalanceForRentExemption(usdcMintLen);
 
         // Instruction to invoke System Program to create new account
@@ -142,11 +161,43 @@ describe("lending-pool", () => {
         );
 
         logTransactionSignature(usdcTransactionSignature);
+        
+        // Create a new throw-away ATA for testing
+        const throwAwayATA = await createAssociatedTokenAccount(
+            connection,
+            payer.payer,
+            usdcMint,
+            payer.publicKey,
+            {
+                commitment: "confirmed",
+            },
+            TOKEN_2022_PROGRAM_ID,
+        );
+
+        // Mint 10 USDC to the throw-away ATA
+        const mintAmount = 10 * 10 ** usdcDecimals;
+        await mintTo(
+            connection,
+            payer.payer,
+            usdcMint,
+            throwAwayATA,
+            usdcMintAuthority.publicKey,
+            mintAmount,
+            [],
+            {
+                commitment: "confirmed",
+            },
+            TOKEN_2022_PROGRAM_ID,
+        );
+
+        // Check the balance of the throw-away ATA
+        const throwAwayATABalance = await connection.getTokenAccountBalance(throwAwayATA);
+        console.log(`Throw-away ATA Balance: ${throwAwayATABalance.value.uiAmount} USDC`);
     });
 
     it("Airdrops SOL to HolderA and HolderB", async () => {
         const rentExemptionForSystemAccount = await connection.getMinimumBalanceForRentExemption(0);
-        const rentExemptionForTokenAccount = await connection.getMinimumBalanceForRentExemption(mintLen);
+        const rentExemptionForTokenAccount = await connection.getMinimumBalanceForRentExemption(iSolMintLen);
 
         const totalAirdropHolderA = 2 * LAMPORTS_PER_SOL + rentExemptionForSystemAccount + rentExemptionForTokenAccount;
         const totalAirdropHolderB = 3 * LAMPORTS_PER_SOL + rentExemptionForSystemAccount + rentExemptionForTokenAccount;
@@ -158,13 +209,13 @@ describe("lending-pool", () => {
     it("Creates a token Mint account with Interest Bearing extension", async () => {
 
         // Minimum lamports required for Mint Account
-        const lamports = await connection.getMinimumBalanceForRentExemption(mintLen);
+        const lamports = await connection.getMinimumBalanceForRentExemption(iSolMintLen);
 
         // Instruction to invoke System Program to create new account
         const createAccountInstruction = SystemProgram.createAccount({
             fromPubkey: payer.publicKey, // Account that will transfer lamports to created account
-            newAccountPubkey: mint, // Address of the account to create
-            space: mintLen, // Amount of bytes to allocate to the created account
+            newAccountPubkey: iSolMint, // Address of the account to create
+            space: iSolMintLen, // Amount of bytes to allocate to the created account
             lamports, // Amount of lamports transferred to created account
             programId: TOKEN_2022_PROGRAM_ID, // Program assigned as owner of created account
         });
@@ -172,17 +223,17 @@ describe("lending-pool", () => {
         // Instruction to initialize the InterestBearingConfig Extension
         const initializeInterestBearingMintInstruction =
             createInitializeInterestBearingMintInstruction(
-                mint, // Mint Account address
-                rateAuthority.publicKey, // Designated Rate Authority
-                rate, // Interest rate basis points
+                iSolMint, // Mint Account address
+                iSolRateAuthority.publicKey, // Designated Rate Authority
+                iSolRate, // Interest rate basis points
                 TOKEN_2022_PROGRAM_ID, // Token Extension Program ID
             );
 
         // Instruction to initialize Mint Account data
         const initializeMintInstruction = createInitializeMintInstruction(
-            mint, // Mint Account Address
-            decimals, // Decimals of Mint
-            mintAuthority.publicKey, // Designated Mint Authority
+            iSolMint, // Mint Account Address
+            iSolDecimals, // Decimals of Mint
+            iSolMintAuthority.publicKey, // Designated Mint Authority
             null, // Optional Freeze Authority
             TOKEN_2022_PROGRAM_ID, // Token Extension Program ID
         );
@@ -198,7 +249,7 @@ describe("lending-pool", () => {
         const transactionSignature = await sendAndConfirmTransaction(
             connection,
             transaction,
-            [payer.payer, mintKeypair], // Signers
+            [payer.payer, iSolMintKeypair], // Signers
         );
 
         logTransactionSignature(transactionSignature);
@@ -221,7 +272,7 @@ describe("lending-pool", () => {
         const tx1 = await program.methods.registerDepositor()
             .accountsStrict({
                 depositor: holderA.publicKey,
-                mint: mint,
+                mint: iSolMint,
                 associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
@@ -234,7 +285,7 @@ describe("lending-pool", () => {
         const tx2 = await program.methods.registerDepositor()
             .accountsStrict({
                 depositor: holderB.publicKey,
-                mint: mint,
+                mint: iSolMint,
                 associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
@@ -254,29 +305,29 @@ describe("lending-pool", () => {
         await program.methods.deposit(new anchor.BN(2 * LAMPORTS_PER_SOL)) // 2 SOL
             .accountsStrict({
                 depositor: holderA.publicKey,
-                mint: mint,
-                mintAuthority: mintAuthority.publicKey, // Your mint authority public key
+                mint: iSolMint,
+                mintAuthority: iSolMintAuthority.publicKey, // Your mint authority public key
                 depositorAta: holderAATA,
                 systemProgram: SystemProgram.programId,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
                 poolPda: poolPda,
             })
-            .signers([holderA, mintAuthority.payer])
+            .signers([holderA, iSolMintAuthority.payer])
             .rpc();
 
         await program.methods.deposit(new anchor.BN(3 * LAMPORTS_PER_SOL)) // 3 SOL
             .accountsStrict({
                 depositor: holderB.publicKey,
-                mint: mint,
-                mintAuthority: mintAuthority.publicKey, // Your mint authority public key
+                mint: iSolMint,
+                mintAuthority: iSolMintAuthority.publicKey, // Your mint authority public key
                 depositorAta: holderBATA,
                 systemProgram: SystemProgram.programId,
-                tokenProgram: TOKEN_2022_PROGRAM_ID, 
+                tokenProgram: TOKEN_2022_PROGRAM_ID,
                 poolPda: poolPda,
                 associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
             })
-            .signers([holderB, mintAuthority.payer])
+            .signers([holderB, iSolMintAuthority.payer])
             .rpc();
 
         // Check balances of iSOL tokens in HolderA and HolderB's ATAs
@@ -290,19 +341,76 @@ describe("lending-pool", () => {
         const holderA_AccruedValueAmount = await amountToUiAmount(
             connection, // Connection to the Solana cluster
             payer.payer, // Account that will transfer lamports for the transaction
-            mint, // Address of the Mint account
+            iSolMint, // Address of the Mint account
             BigInt(holderA_iSolBalance.value.amount), // Amount to be converted
             TOKEN_2022_PROGRAM_ID, // Token Extension Program ID
         );
         const holderB_AccruedValueAmount = await amountToUiAmount(
             connection, // Connection to the Solana cluster
             payer.payer, // Account that will transfer lamports for the transaction
-            mint, // Address of the Mint account
+            iSolMint, // Address of the Mint account
             BigInt(holderB_iSolBalance.value.amount), // Amount to be converted
             TOKEN_2022_PROGRAM_ID, // Token Extension Program ID
         );
 
         console.log(`HolderA Balance: ${holderA_iSolBalanceInSOL} iSOL = ${holderA_AccruedValueAmount} SOL`);
         console.log(`HolderB Balance: ${holderB_iSolBalanceInSOL} iSOL = ${holderB_AccruedValueAmount} SOL`);
+    });
+
+    it("BorrowerA borrows SOL using USDC as collateral", async () => {
+        const rentExemptionForSystemAccount = await connection.getMinimumBalanceForRentExemption(0);
+        const rentExemptionForTokenAccount = await connection.getMinimumBalanceForRentExemption(usdcMintLen);
+
+        const totalAirdropBorrowerA = rentExemptionForSystemAccount + rentExemptionForTokenAccount;
+
+        // Airdrop SOL to BorrowerA for transaction fees and rent exemption
+        console.log("Funding BorrowerA with rent-exemption SOL...");
+        await connection.requestAirdrop(borrowerA.publicKey, totalAirdropBorrowerA);
+
+        // Create BorrowerA's ATA for USDC
+        console.log("Creating BorrowerA's ATA for USDC...");
+        await createAssociatedTokenAccount(
+            connection,
+            payer.payer,
+            usdcMint,
+            borrowerA.publicKey,
+            {
+                commitment: "confirmed",
+            },
+            TOKEN_2022_PROGRAM_ID,
+        );
+
+        // Mint 2000 USDC to BorrowerA's ATA
+        const totalUSDC = 2000 * 10 ** usdcDecimals;
+        await mintTo(
+            connection,
+            payer.payer,
+            usdcMint,
+            borrowerAATA,
+            usdcMintAuthority.publicKey,
+            totalUSDC,
+            [],
+            {
+                commitment: "confirmed",
+            },
+            TOKEN_2022_PROGRAM_ID,
+        )
+
+        // Borrow 2000 USDC worth of SOL
+        const borrowTx = await program.methods.borrow(new anchor.BN(totalUSDC)) // 2000 USDC
+            .accountsStrict({
+                borrower: borrowerA.publicKey,
+                borrowerAta: borrowerAATA,
+                mint: usdcMint,
+                poolPda: poolPda,
+                collateralTaPda: collateralTaPda,
+                tokenProgram: TOKEN_2022_PROGRAM_ID,
+                systemProgram: SystemProgram.programId,
+                associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            })
+            .signers([borrowerA])
+            .rpc();
+
+        logTransactionSignature(borrowTx);
     });
 });

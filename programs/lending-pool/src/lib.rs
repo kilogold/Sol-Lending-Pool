@@ -96,6 +96,44 @@ pub mod lending_pool {
 
         Ok(())
     }
+
+    pub fn borrow(ctx: Context<Borrow>, amount: u64) -> Result<()> {
+        msg!("Borrower ATA Address: {}", ctx.accounts.borrower_ata.key());
+
+        // Determine the required collateral
+        let required_collateral = calculate_required_collateral(amount)?;
+
+        // Transfer tokens from borrower to the collateral PDA
+        let cpi_accounts = token_2022::Transfer {
+            from: ctx.accounts.borrower_ata.to_account_info(),
+            to: ctx.accounts.collateral_ta_pda.to_account_info(),
+            authority: ctx.accounts.borrower.to_account_info(),
+        };
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+        token_2022::transfer(cpi_ctx, required_collateral)?;
+
+        // Transfer SOL from pool PDA to the borrower
+        **ctx
+            .accounts
+            .pool_pda
+            .to_account_info()
+            .try_borrow_mut_lamports()? -= amount;
+
+        **ctx
+            .accounts
+            .borrower
+            .to_account_info()
+            .try_borrow_mut_lamports()? += amount;
+
+        Ok(())
+    }
+}
+
+fn calculate_required_collateral(amount: u64) -> Result<u64> {
+    // TODO: compute the interest rate + overcollateralization.
+    // For now, we will just return the same amount as a placeholder
+    Ok(amount)
 }
 
 #[derive(Accounts)]
@@ -129,6 +167,43 @@ pub struct Initialize<'info> {
 }
 
 #[derive(Accounts)]
+pub struct Borrow<'info> {
+    #[account(mut)]
+    pub borrower: Signer<'info>,
+
+    #[account(
+        init_if_needed, // HACK: I don't know why I can't just use mut.
+        payer = borrower,
+        associated_token::mint = mint,
+        associated_token::authority = borrower,
+        mint::token_program = token_program,
+    )]
+    pub borrower_ata: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(mut)]
+    pub mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        mut,
+        seeds = [b"pool"],
+        bump
+    )]
+    /// CHECK: Well-known account.
+    pub pool_pda: AccountInfo<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"collateral"],
+        bump
+    )]
+    pub collateral_ta_pda: InterfaceAccount<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token2022>,
+    pub system_program: Program<'info, System>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+}
+
+#[derive(Accounts)]
 pub struct Deposit<'info> {
     #[account(mut)]
     pub depositor: Signer<'info>,
@@ -145,7 +220,7 @@ pub struct Deposit<'info> {
     #[account(mut)]
     pub mint: InterfaceAccount<'info, Mint>,
     /// CHECK: This is a read-only account
-    pub mint_authority: AccountInfo<'info>, //TODO: Make a PDA be the authority. 
+    pub mint_authority: AccountInfo<'info>, //TODO: Make a PDA be the authority.
     #[account(
         mut,
         seeds = [b"pool"],
