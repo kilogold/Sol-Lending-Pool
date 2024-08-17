@@ -285,6 +285,14 @@ describe("lending-pool", () => {
                 pda_iSolMintAuthority,
                 [],
                 TOKEN_2022_PROGRAM_ID
+            ),
+            createSetAuthorityInstruction(
+                iSolMint,
+                iSolMintAuthority,
+                AuthorityType.InterestRate,
+                pda_iSolMintAuthority,
+                [],
+                TOKEN_2022_PROGRAM_ID
             )
         );
 
@@ -429,21 +437,45 @@ describe("lending-pool", () => {
             TOKEN_2022_PROGRAM_ID,
         )
 
-        // Borrow 2000 USDC worth of SOL
-        const borrowTx = await program.methods.borrow(new anchor.BN(totalUSDC)) // 2000 USDC
+        // Borrow 2 SOL
+        const borrowAmount = new anchor.BN(2.5 * LAMPORTS_PER_SOL); // 2 SOL
+        const borrowTx = await program.methods.borrow(borrowAmount)
             .accountsStrict({
                 borrower: borrowerA.publicKey,
                 borrowerAta: borrowerAATA,
-                mint: usdcMint,
+                collateralMint: usdcMint,
+                collateralPoolPda: collateralTaPda,
                 poolPda: poolPda,
-                collateralTaPda: collateralTaPda,
+                isolMint: iSolMint,
+                isolMintAuthority: iSolMintAuthority,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
                 associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
             })
             .signers([borrowerA])
-            .rpc();
+            .rpc({ commitment: "confirmed" });
 
         logTransactionSignature(borrowTx);
+
+        // The borrowing interest rate has now increased.
+        const mintInfo = await getMint(
+            connection,
+            iSolMint,
+            "confirmed",
+            TOKEN_2022_PROGRAM_ID
+        );
+        
+        const interestBearingConfig = await getInterestBearingMintConfigState(
+            mintInfo,
+        );
+        
+        if (interestBearingConfig) {
+            const RATE_DECIMALS = 100;
+            const currentRate = interestBearingConfig.currentRate;
+            expect(currentRate / RATE_DECIMALS).equals(50, "Half-utilization rate.");
+            console.log(`Current interest rate: ${currentRate} basis points`);
+        } else {
+            throw new Error("InterestBearingConfig not found on iSOL mint");
+        }
     });
 });
