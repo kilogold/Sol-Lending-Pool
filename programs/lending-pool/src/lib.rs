@@ -26,6 +26,8 @@ use types::*;
 
 declare_id!("Dc3diDtBztbtXgnLtHHn8MnPjjiGHBK5AfxQ5GHWGSXQ");
 
+const DISCRIMINATOR: usize = 8;
+
 #[program]
 pub mod lending_pool {
     use anchor_spl::{token_2022::spl_token_2022::extension::interest_bearing_mint, token_interface::interest_bearing_mint_update_rate};
@@ -173,6 +175,20 @@ pub mod lending_pool {
         );
         interest_bearing_mint_update_rate(cpi_ctx, new_rate)?;
 
+        // Update the loan record PDA
+        let new_loan_amount = ctx.accounts.loan_record.amount.checked_add(amount)
+            .ok_or(LendingPoolError::MathOverflow)?;
+
+        // Get the current timestamp
+        let current_time = Clock::get()?.unix_timestamp as u64;
+
+        // Set expiration time to one year from now
+        let expiration_time = current_time.checked_add(365 * 24 * 60 * 60) // 365 days in seconds
+            .ok_or(LendingPoolError::MathOverflow)?;
+
+        ctx.accounts.loan_record.amount = new_loan_amount;
+        ctx.accounts.loan_record.expiration_time = expiration_time;
+
         Ok(())
     }
 }
@@ -254,7 +270,7 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = payer,
-        space = DISCRIMINATOR + PoolState::len(),
+        space = PoolState::len(),
         seeds = [b"pool"],
         bump
     )]
@@ -322,6 +338,15 @@ pub struct Borrow<'info> {
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
     pub associated_token_program: Program<'info, AssociatedToken>,
+
+    #[account(
+        init_if_needed,
+        payer = borrower,
+        space = LoanRecord::len(),
+        seeds = [b"loan", borrower.key().as_ref()],
+        bump
+    )]
+    pub loan_record: Account<'info, LoanRecord>,
 }
 
 #[derive(Accounts)]
@@ -385,7 +410,22 @@ pub struct PoolState {
 }
 impl PoolState {
     pub fn len() -> usize {
+        DISCRIMINATOR +
         U64 + U64
+    }
+}
+
+#[account]
+pub struct LoanRecord {
+    pub amount: u64,
+    pub expiration_time: u64,
+}
+
+impl LoanRecord {
+    pub fn len() -> usize {
+        DISCRIMINATOR + // Discriminator
+        U64 + // amount
+        U64  // expiration_time
     }
 }
 
@@ -405,4 +445,7 @@ pub enum LendingPoolError {
 
     #[msg("Insufficient collateral")]
     InsufficientCollateral,
+
+    #[msg("Loan record already exists")]
+    LoanRecordAlreadyExists,
 }

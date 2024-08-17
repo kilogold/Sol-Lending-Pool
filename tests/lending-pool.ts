@@ -437,8 +437,14 @@ describe("lending-pool", () => {
             TOKEN_2022_PROGRAM_ID,
         )
 
-        // Borrow 2 SOL
-        const borrowAmount = new anchor.BN(2.5 * LAMPORTS_PER_SOL); // 2 SOL
+        // Derive the loan record PDA
+        const [loanRecordPda, _] = anchor.web3.PublicKey.findProgramAddressSync(
+            [Buffer.from("loan"), borrowerA.publicKey.toBuffer()],
+            program.programId
+        );
+
+        // Borrow 2.5 SOL
+        const borrowAmount = new anchor.BN(2.5 * LAMPORTS_PER_SOL);
         const borrowTx = await program.methods.borrow(borrowAmount)
             .accountsStrict({
                 borrower: borrowerA.publicKey,
@@ -451,12 +457,19 @@ describe("lending-pool", () => {
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
                 associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+                loanRecord: loanRecordPda,
             })
             .signers([borrowerA])
             .rpc({ commitment: "confirmed" });
 
         logTransactionSignature(borrowTx);
 
+        // Verify that the loan record PDA was created
+        const loanRecordAccount = await program.account.loanRecord.fetch(loanRecordPda);
+        expect(loanRecordAccount).to.not.be.null;
+        expect(loanRecordAccount.amount.toNumber()).to.equal(borrowAmount.toNumber());
+        expect(loanRecordAccount.expirationTime.toNumber()).to.be.greaterThan(0);
+    
         // The borrowing interest rate has now increased.
         const mintInfo = await getMint(
             connection,
