@@ -26,7 +26,7 @@ import {
     mintTo,
     getOrCreateAssociatedTokenAccount,
     createSetAuthorityInstruction,
-    AuthorityType
+    AuthorityType,
 } from "@solana/spl-token";
 import { expect } from "chai";
 
@@ -112,6 +112,22 @@ describe("lending-pool", () => {
         [Buffer.from("isol_mint_auth")],
         program.programId
     );
+
+    async function amountToUiAmountAtTimestamp(amount:number, unix_timestamp:number) {
+        const tx = await program.methods.amountToUiAmount(
+            new anchor.BN(amount),
+            new anchor.BN(unix_timestamp)
+        ).accountsStrict({
+            isolMint: iSolMint,
+        })
+        .transaction();
+    
+        const { returnData, err } = (await connection.simulateTransaction(tx, [payer.payer], false)).value;
+        if (returnData?.data) {
+            return Buffer.from(returnData.data[0], returnData.data[1]).toString('utf-8');
+        }
+        return err;
+    }
 
     // Print all public keys generated above
     console.log("HolderA ATA:", holderAATA.toBase58());
@@ -464,12 +480,6 @@ describe("lending-pool", () => {
 
         logTransactionSignature(borrowTx);
 
-        // Verify that the loan record PDA was created
-        const loanRecordAccount = await program.account.loanRecord.fetch(loanRecordPda);
-        expect(loanRecordAccount).to.not.be.null;
-        expect(loanRecordAccount.amount.toNumber()).to.equal(borrowAmount.toNumber());
-        expect(loanRecordAccount.expirationTime.toNumber()).to.be.greaterThan(0);
-    
         // The borrowing interest rate has now increased.
         const mintInfo = await getMint(
             connection,
@@ -477,18 +487,60 @@ describe("lending-pool", () => {
             "confirmed",
             TOKEN_2022_PROGRAM_ID
         );
-        
+
         const interestBearingConfig = await getInterestBearingMintConfigState(
             mintInfo,
         );
-        
+
         if (interestBearingConfig) {
             const RATE_DECIMALS = 100;
             const currentRate = interestBearingConfig.currentRate;
-            expect(currentRate / RATE_DECIMALS).equals(50, "Half-utilization rate.");
-            console.log(`Current interest rate: ${currentRate} basis points`);
+            const currentRatePercentage = currentRate / RATE_DECIMALS;
+            expect(currentRatePercentage).equals(50, "Half-utilization rate.");
+            console.log(`Current interest rate: ${currentRate} basis points (${currentRatePercentage}%)`);
         } else {
             throw new Error("InterestBearingConfig not found on iSOL mint");
+        }
+
+        // Verify that the loan record PDA was created
+        const loanRecordAccount = await program.account.loanRecord.fetch(loanRecordPda);
+        expect(loanRecordAccount).to.not.be.null;
+
+        // Calculate the expected total amount to repay (principal + interest)
+        const BASIS_DIVISOR = 10000;
+        const borrowAmountNumber = borrowAmount.toNumber();
+        const interestAmount = Math.floor((borrowAmountNumber * interestBearingConfig.currentRate) / BASIS_DIVISOR);
+        const expectedTotalAmount = borrowAmountNumber + interestAmount;
+        expect(loanRecordAccount.amount.toNumber()).to.equal(expectedTotalAmount);
+        expect(loanRecordAccount.expirationTime.toNumber()).to.be.greaterThan(0);
+
+        console.log(`Borrowed amount: ${borrowAmountNumber / LAMPORTS_PER_SOL} SOL`);
+        console.log(`Interest amount: ${interestAmount / LAMPORTS_PER_SOL} SOL`);
+        console.log(`Total amount to repay: ${expectedTotalAmount / LAMPORTS_PER_SOL} SOL`);
+    });
+
+    it("Verifies iSOL appreciation after 1 year", async () => {
+
+        const holderAiSolBalance = await connection.getTokenAccountBalance(holderAATA);
+
+        // Unix timestamp for 1 year from now
+        const oneYearFromNow = ( Math.floor(Date.now() / 1000) + 31536000);
+
+        const uiAmount = await amountToUiAmountAtTimestamp(Number(holderAiSolBalance.value.amount), oneYearFromNow);
+
+        console.log(`HolderA's iSOL balance in SOL 1 YEAR FROM NOW: ${uiAmount}`);
+
+        for (let i = 0; i < 100; i++) {
+            // Convert iSOL balance to UI amount (in SOL)
+            const holderAiSolUiAmount = await amountToUiAmount(
+                connection,
+                payer.payer,
+                iSolMint,
+                BigInt(holderAiSolBalance.value.amount),
+                TOKEN_2022_PROGRAM_ID
+            );
+
+            console.log(`HolderA's iSOL balance in SOL: ${holderAiSolUiAmount}`);
         }
     });
 });

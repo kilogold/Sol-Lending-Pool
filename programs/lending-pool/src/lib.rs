@@ -7,10 +7,12 @@ use anchor_spl::{
     token_2022::{
         self,
         spl_token_2022::{
+            state::Mint as MintState,
             extension::{
                 group_member_pointer::GroupMemberPointer, metadata_pointer::MetadataPointer,
                 mint_close_authority::MintCloseAuthority, permanent_delegate::PermanentDelegate,
-                transfer_hook::TransferHook, self,
+                transfer_hook::TransferHook, self, interest_bearing_mint::InterestBearingConfig,
+                StateWithExtensions, BaseStateWithExtensions
             },
             instruction::TokenInstruction::MintTo,
         },
@@ -120,6 +122,7 @@ pub mod lending_pool {
 
     pub fn borrow(ctx: Context<Borrow>, amount: u64) -> Result<()> {
         msg!("Borrower ATA Address: {}", ctx.accounts.borrower_ata.key());
+        // TODO: Consider cases where the borrower has an active loan.
 
         // Ensure the pool has enough available SOL to borrow
         let available_borrows = calculate_available_borrows(&ctx.accounts.pool_pda);
@@ -175,20 +178,42 @@ pub mod lending_pool {
         );
         interest_bearing_mint_update_rate(cpi_ctx, new_rate)?;
 
-        // Update the loan record PDA
-        let new_loan_amount = ctx.accounts.loan_record.amount.checked_add(amount)
+        // Project the total amount to repay for the entire loan term.
+        let interest_amount = (amount as u128 * new_rate as u128 / 10000).try_into()
+            .map_err(|_| LendingPoolError::MathOverflow)?;
+        let total_amount_to_repay = amount.checked_add(interest_amount)
             .ok_or(LendingPoolError::MathOverflow)?;
 
-        // Get the current timestamp
-        let current_time = Clock::get()?.unix_timestamp as u64;
-
         // Set expiration time to one year from now
+        let current_time = Clock::get()?.unix_timestamp as u64;
         let expiration_time = current_time.checked_add(365 * 24 * 60 * 60) // 365 days in seconds
             .ok_or(LendingPoolError::MathOverflow)?;
 
-        ctx.accounts.loan_record.amount = new_loan_amount;
+        // Update the loan record PDA
+        ctx.accounts.loan_record.amount = total_amount_to_repay;
         ctx.accounts.loan_record.expiration_time = expiration_time;
 
+        Ok(())
+    }
+
+    /// Same as `interest_bearing_mint::InterestBearingConfig::amount_to_ui_amount`,
+    /// except you can specify a timestamp for projecting the amount.
+    pub fn amount_to_ui_amount(ctx: Context<AmountToUiAmount>, amount: u64, unix_timestamp: u64) -> Result<()> {
+
+        let mint_account_info = ctx.accounts.isol_mint.to_account_info();
+        let mint_data = mint_account_info.data.borrow();
+        let mint = StateWithExtensions::<MintState>::unpack(&mint_data)?;
+        
+        let ui_amount = mint.get_extension::<InterestBearingConfig>()
+            .map_err(|_| ProgramError::InvalidAccountData)?
+            .amount_to_ui_amount(
+                amount,
+                ctx.accounts.isol_mint.decimals,
+                i64::try_from(unix_timestamp).map_err(|_| LendingPoolError::MathOverflow)?
+            )
+            .ok_or(ProgramError::InvalidAccountData)?;
+
+        anchor_lang::solana_program::program::set_return_data(&ui_amount.into_bytes());
         Ok(())
     }
 }
@@ -259,10 +284,11 @@ fn compute_interest_rate(pool: &PoolState) -> Result<i16> {
 
 
 
-
-
-
-
+#[derive(Accounts)]
+pub struct AmountToUiAmount<'info> {
+    #[account(mut)]
+    pub isol_mint: InterfaceAccount<'info, Mint>,
+}
 #[derive(Accounts)]
 pub struct Initialize<'info> {
     #[account(mut)]
