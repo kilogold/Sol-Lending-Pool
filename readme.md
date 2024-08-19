@@ -1,12 +1,13 @@
+> :warning: Not meant to be used in production.
+
 # What is this?
 This is a reference implementation of a Solana lending pool program, using the Interest Bearing token extension to represent shares of the pool, and built with Anchor. 
-> :warning: Not meant to be used in production.
+This implementation illustrates how on-chain protocols influence [client-side implementations](https://solana.com/developers/guides/token-extensions/interest-bearing-tokens).  
 
 # How to run
 1. Clone the repository
 2. Run `anchor build`
 3. Run `anchor test`
-
 
 # What does this reference implementation do?
 See the tests in [lending-pool.ts](tests/lending-pool.ts) for implementation details. At a high level, it does the following:
