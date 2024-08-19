@@ -50,14 +50,14 @@ flowchart TD
 ```mermaid
 flowchart TD
  subgraph subgraph_1ktz23e5x["Lending"]
-        ne["SOL Lend Prog<br>"]
-        n1["Pool<br><s>[5k SOL]</s><br>[4.5k SOL]<br>"]
-        n4["Collateral<br><s>[0 USDC]</s><br>[50k USDC]"]
+        ne["SOL Lend Prog"]
+        n1["Pool[SOL]"]
+        n4["Collateral[USDC]"]
         n3["Loan record"]
   end
-    ne -.-|PDA| n1 & n4 & n3
-    ne -- 1a.Deposit --> n5["Borrower ATA<br><s>[120k USDC]</s><br>[70k USDC]"]
-    np("Borrower Acct<br><s>[0 SOL]</s><br>[500 SOL]") -->|0.Borrow| ne
+    %%ne -.-|PDA| n1 & n4 & n3
+    ne -- 1a.Deposit --> n5["Borrower ATA [USDC]"]
+    np("Borrower Acct[SOL]") -->|0.Borrow| ne
     n5 -- 1b.Transfer --> n4
     ne --->|2a.Lend| n1
     n1 -- 2c.Recieve ---> np
@@ -68,7 +68,7 @@ flowchart TD
 %%{init: {'themeVariables': { 'pie1': '#000000', 'pie2': '#440044', 'pie3': '#882288', 'pie4': '#444444', 'pie5': '#800080', 'pie6': '#ff0000', 'pie7': '#FFA500'}}}%%
 pie showdata title Step1: SOL Lending Pool Init
     "HolderA" : 2
-    "HolderB" : 2
+    "HolderB" : 3
 ```
 
 - No borrowers present.
@@ -78,31 +78,37 @@ pie showdata title Step1: SOL Lending Pool Init
   
 
 ```mermaid
-%%{init: {'themeVariables': { 'pie1': '#000000', 'pie2': '#444444', 'pie3': '#882288', 'pie4': '#440044', 'pie5': '#800080', 'pie6': '#ff0000', 'pie7': '#FFA500'}}}%%
+%%{init: {'themeVariables': { 
+'pie1': '#444444', 
+'pie2': '#882288', 
+'pie3': '#000000', 
+'pie4': '#440044', 
+'pie5': '#800080', 
+'pie6': '#ff0000', 
+'pie7': '#FFA500'}}}%%
 pie showdata title Step2: SOL Lending Pool Borrow
-    "HolderA" : 1
-        "HolderA-Loaned" : 1
-    "HolderB-Loaned" : 1
-
-    "HolderB" : 1
+    "HolderB-Loaned" : 2.079
+    "HolderA-Loaned" : 1.386
+    "HolderB" : 0.921
+    "HolderA" : 0.614
 
 ```
-- A single borrower effectively borrows `50%` of the pool.
-    - Each holder’s contribution (marked by color shade) is uniformly reserved for the loan.
-- Utilization rate is 50% = Interest rate is 50%.
+- A single borrower effectively borrows `69.3%` of the pool.
+    - Each holder's contribution (marked by color shade) is uniformly reserved for the loan.
+    - Due to compounding interest, this amount is borrowed to produce an interest rate that doubles holder earnings by EOY.
+- Utilization rate is 69.3% = Interest rate is 69.3%.
     - Interest rate gets adjusted automatically upon issuing loans.
 - Interest rate is based on 1 year __fixed rate.__
-    - EOY projected repayment amount is committed upon borrowing (150% of borrowed amount).
+    - EOY projected repayment amount is committed upon borrowing.
     - Paying off early has no effect on interest rate.
-- Borrower will settle with 150% of borrowed amount 
-    - 2 SOL loaned + 1 SOL interest = 3 SOL.
-- Holders being accumulating interest upon borrowing.
+- Borrower will settle with `SOL` loaned + `SOL` interest = `SOL`.
+- Holders being accumulating interest upon borrowing because the loan is guaranteed via repayment or collateral liquidation.
 
 ```mermaid
 %%{init: {'themeVariables': { 'pie1': '#000000', 'pie2': '#440044', 'pie3': '#882288', 'pie4': '#444444', 'pie5': '#800080', 'pie6': '#ff0000', 'pie7': '#FFA500'}}}%%
 pie showdata title Step3: SOL Lending Pool Repaid
-    "HolderA" : 2.5
-    "HolderB" : 2.5
+    "HolderA" : 4
+    "HolderB" : 6
 ```
 
 ```mermaid
@@ -110,12 +116,12 @@ pie showdata title Step3: SOL Lending Pool Repaid
     title "Pool Growth"
     x-axis [HolderA+, HolderB+, BorrowerA-]
     y-axis "SOL (in Lamports)" 0 --> 10
-    bar [2, 4, 5]
-    %%line [5000, 6000, 7500, 8200, 9500, 10500, 11000, 10200, 9200, 8500, 7000, 6000]
+    bar [2, 3, 10]
 ```
 
 # Features not yet implemented
-- [ ] Withdrawing SOL  
+- [ ] Withdrawing SOL
+- [ ] Same user borrowing twice
 
 
 # Features out of scope
