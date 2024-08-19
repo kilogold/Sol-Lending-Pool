@@ -2,17 +2,14 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { LendingPool } from "../target/types/lending_pool";
 import {
-    Connection,
     Keypair,
     SystemProgram,
     Transaction,
-    clusterApiUrl,
     sendAndConfirmTransaction,
     LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
 import {
     ExtensionType,
-    updateRateInterestBearingMint,
     createInitializeInterestBearingMintInstruction,
     createInitializeMintInstruction,
     getMintLen,
@@ -24,7 +21,6 @@ import {
     createAssociatedTokenAccount,
     getAssociatedTokenAddressSync,
     mintTo,
-    getOrCreateAssociatedTokenAccount,
     createSetAuthorityInstruction,
     AuthorityType,
 } from "@solana/spl-token";
@@ -116,15 +112,15 @@ describe("lending-pool", () => {
         program.programId
     );
 
-    async function amountToUiAmountAtTimestamp(amount:number, unix_timestamp:number) {
+    async function amountToUiAmountAtTimestamp(amount: number, unix_timestamp: number) {
         const tx = await program.methods.amountToUiAmount(
             new anchor.BN(amount),
             new anchor.BN(unix_timestamp)
         ).accountsStrict({
             isolMint: iSolMint,
         })
-        .transaction();
-    
+            .transaction();
+
         const { returnData, err } = (await connection.simulateTransaction(tx, [payer.payer], false)).value;
         if (returnData?.data) {
             return Buffer.from(returnData.data[0], returnData.data[1]).toString('utf-8');
@@ -532,17 +528,17 @@ describe("lending-pool", () => {
         const holderAiSolBalance = await connection.getTokenAccountBalance(holderAATA);
         const uiAmountA = await amountToUiAmountAtTimestamp(Number(holderAiSolBalance.value.amount), oneYearFromNow);
         const actualUiAmountA = Number(uiAmountA);
-        const expectedUiAmountA = (depositorALamports * 2)/LAMPORTS_PER_SOL;
+        const expectedUiAmountA = (depositorALamports * 2) / LAMPORTS_PER_SOL;
         console.log(`HolderA's iSOL balance in SOL 1 YEAR FROM NOW: ${actualUiAmountA} (approx. ${expectedUiAmountA.toFixed()} SOL)`);
-        
-        expect(Math.abs(actualUiAmountA - expectedUiAmountA )).is.lessThan(EPSILON);
+
+        expect(Math.abs(actualUiAmountA - expectedUiAmountA)).is.lessThan(EPSILON);
 
         const holderBiSolBalance = await connection.getTokenAccountBalance(holderBATA);
         const uiAmountB = await amountToUiAmountAtTimestamp(Number(holderBiSolBalance.value.amount), oneYearFromNow);
         const actualUiAmountB = Number(uiAmountB);
-        const expectedUiAmountB = (depositorBLamports * 2)/LAMPORTS_PER_SOL;
+        const expectedUiAmountB = (depositorBLamports * 2) / LAMPORTS_PER_SOL;
         console.log(`HolderB's iSOL balance in SOL 1 YEAR FROM NOW: ${actualUiAmountB} (approx. ${expectedUiAmountB.toFixed()} SOL)`);
-        
-        expect(Math.abs(actualUiAmountB - expectedUiAmountB )).is.lessThan(EPSILON);
+
+        expect(Math.abs(actualUiAmountB - expectedUiAmountB)).is.lessThan(EPSILON);
     });
 });
