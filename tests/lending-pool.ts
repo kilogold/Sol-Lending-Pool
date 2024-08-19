@@ -95,6 +95,9 @@ describe("lending-pool", () => {
         TOKEN_2022_PROGRAM_ID // Token program ID
     );
 
+    const depositorALamports = 2 * LAMPORTS_PER_SOL;
+    const depositorBLamports = 3 * LAMPORTS_PER_SOL;
+
     // Derive the pool PDA using "pool" as the seed
     const [poolPda, _poolBump] = anchor.web3.PublicKey.findProgramAddressSync(
         [Buffer.from("pool")],
@@ -359,7 +362,7 @@ describe("lending-pool", () => {
         // Deposit SOL into the lending pool and mint iSOL tokens
         // This part will depend on your lending pool program's implementation
         // Assuming you have a deposit method in your program
-        await program.methods.deposit(new anchor.BN(2 * LAMPORTS_PER_SOL)) // 2 SOL
+        await program.methods.deposit(new anchor.BN(depositorALamports)) // 2 SOL
             .accountsStrict({
                 depositor: holderA.publicKey,
                 isolMint: iSolMint,
@@ -373,7 +376,7 @@ describe("lending-pool", () => {
             .signers([holderA])
             .rpc();
 
-        await program.methods.deposit(new anchor.BN(3 * LAMPORTS_PER_SOL)) // 3 SOL
+        await program.methods.deposit(new anchor.BN(depositorBLamports)) // 3 SOL
             .accountsStrict({
                 depositor: holderB.publicKey,
                 isolMint: iSolMint,
@@ -459,8 +462,9 @@ describe("lending-pool", () => {
             program.programId
         );
 
-        // Borrow 2.5 SOL
-        const borrowAmount = new anchor.BN(2.5 * LAMPORTS_PER_SOL);
+        // Borrow 3.465 SOL (69.3% of the pool)
+        // By the end of the year, holders will have doubled their deposits.
+        const borrowAmount = new anchor.BN(3.465 * LAMPORTS_PER_SOL);
         const borrowTx = await program.methods.borrow(borrowAmount)
             .accountsStrict({
                 borrower: borrowerA.publicKey,
@@ -496,7 +500,7 @@ describe("lending-pool", () => {
             const RATE_DECIMALS = 100;
             const currentRate = interestBearingConfig.currentRate;
             const currentRatePercentage = currentRate / RATE_DECIMALS;
-            expect(currentRatePercentage).equals(50, "Half-utilization rate.");
+            expect(currentRatePercentage).equals(69.3, "Utilization rate 69.3%.");
             console.log(`Current interest rate: ${currentRate} basis points (${currentRatePercentage}%)`);
         } else {
             throw new Error("InterestBearingConfig not found on iSOL mint");
@@ -519,28 +523,26 @@ describe("lending-pool", () => {
         console.log(`Total amount to repay: ${expectedTotalAmount / LAMPORTS_PER_SOL} SOL`);
     });
 
-    it("Verifies iSOL appreciation after 1 year", async () => {
+    it("Holders double iSOL appreciation after 1 year", async () => {
+        const SECONDS_PER_YEAR = 60 * 60 * 24 * 365.24;
+        const MILLISECONDS_PER_SECOND = 1000;
+        const oneYearFromNow = Date.now() / MILLISECONDS_PER_SECOND + SECONDS_PER_YEAR;
+        const EPSILON = 0.001;
 
         const holderAiSolBalance = await connection.getTokenAccountBalance(holderAATA);
+        const uiAmountA = await amountToUiAmountAtTimestamp(Number(holderAiSolBalance.value.amount), oneYearFromNow);
+        const actualUiAmountA = Number(uiAmountA);
+        const expectedUiAmountA = (depositorALamports * 2)/LAMPORTS_PER_SOL;
+        console.log(`HolderA's iSOL balance in SOL 1 YEAR FROM NOW: ${actualUiAmountA} (approx. ${expectedUiAmountA.toFixed()} SOL)`);
+        
+        expect(Math.abs(actualUiAmountA - expectedUiAmountA )).is.lessThan(EPSILON);
 
-        // Unix timestamp for 1 year from now
-        const oneYearFromNow = ( Math.floor(Date.now() / 1000) + 31536000);
-
-        const uiAmount = await amountToUiAmountAtTimestamp(Number(holderAiSolBalance.value.amount), oneYearFromNow);
-
-        console.log(`HolderA's iSOL balance in SOL 1 YEAR FROM NOW: ${uiAmount}`);
-
-        for (let i = 0; i < 100; i++) {
-            // Convert iSOL balance to UI amount (in SOL)
-            const holderAiSolUiAmount = await amountToUiAmount(
-                connection,
-                payer.payer,
-                iSolMint,
-                BigInt(holderAiSolBalance.value.amount),
-                TOKEN_2022_PROGRAM_ID
-            );
-
-            console.log(`HolderA's iSOL balance in SOL: ${holderAiSolUiAmount}`);
-        }
+        const holderBiSolBalance = await connection.getTokenAccountBalance(holderBATA);
+        const uiAmountB = await amountToUiAmountAtTimestamp(Number(holderBiSolBalance.value.amount), oneYearFromNow);
+        const actualUiAmountB = Number(uiAmountB);
+        const expectedUiAmountB = (depositorBLamports * 2)/LAMPORTS_PER_SOL;
+        console.log(`HolderB's iSOL balance in SOL 1 YEAR FROM NOW: ${actualUiAmountB} (approx. ${expectedUiAmountB.toFixed()} SOL)`);
+        
+        expect(Math.abs(actualUiAmountB - expectedUiAmountB )).is.lessThan(EPSILON);
     });
 });
