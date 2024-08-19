@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::{prelude::*, solana_program::entrypoint::ProgramResult};
 
 use anchor_spl::{
     token_2022_extensions,
@@ -9,17 +8,14 @@ use anchor_spl::{
         spl_token_2022::{
             state::Mint as MintState,
             extension::{
-                group_member_pointer::GroupMemberPointer, metadata_pointer::MetadataPointer,
-                mint_close_authority::MintCloseAuthority, permanent_delegate::PermanentDelegate,
-                transfer_hook::TransferHook, self, interest_bearing_mint::InterestBearingConfig,
+                interest_bearing_mint::InterestBearingConfig,
                 StateWithExtensions, BaseStateWithExtensions
             },
-            instruction::TokenInstruction::MintTo,
         },
     },
     token_interface::{
-        spl_token_metadata_interface::state::TokenMetadata, token_metadata_initialize, Mint,
-        Token2022, TokenAccount, TokenMetadataInitialize,
+        Mint,
+        Token2022, TokenAccount,
     },
 };
 
