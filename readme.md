@@ -1,4 +1,6 @@
-> :warning: Not meant to be used in production.
+> :warning: Not meant to be used in production.  
+> :warning: Math is WIP. **Use only as an architectural example.**
+
 
 # What is this?
 This is a reference implementation of a Solana lending pool program, using the Interest Bearing token extension to represent shares of the pool, and built with Anchor. 
