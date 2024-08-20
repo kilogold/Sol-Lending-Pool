@@ -1,5 +1,4 @@
 > :warning: Not meant to be used in production.  
-> :warning: Math is WIP. **Use only as an architectural example.**
 
 
 # What is this?
@@ -101,7 +100,7 @@ pie showdata title Step2: SOL Lending Pool Borrow
 - Interest rate is based on 1 year __fixed rate.__
     - EOY projected repayment amount is committed upon borrowing.
     - Paying off early has no effect on interest rate.
-- Borrower will settle with `SOL` loaned + `SOL` interest = `SOL`.
+- Borrower will settle with `3.465 SOL` loaned + `2.401245 SOL` interest = `5.866245 SOL`.
 - Holders being accumulating interest upon borrowing because the loan is guaranteed via repayment or collateral liquidation.
 
 ```mermaid
