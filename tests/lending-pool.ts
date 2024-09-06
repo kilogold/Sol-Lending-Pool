@@ -23,7 +23,20 @@ import {
     mintTo,
     createSetAuthorityInstruction,
     AuthorityType,
+    createInitializeMetadataPointerInstruction,
+    getMetadataPointerState,
+    getTokenMetadata,
+    TYPE_SIZE,
+    LENGTH_SIZE,
 } from "@solana/spl-token";
+
+import {
+    createInitializeInstruction,
+    createUpdateFieldInstruction,
+    pack,
+    TokenMetadata,
+} from "@solana/spl-token-metadata";
+
 import { expect } from "chai";
 
 function logTransactionSignature(transactionSignature: string) {
@@ -62,7 +75,7 @@ describe("lending-pool", () => {
     const usdcMint = usdcMintKeypair.publicKey;
     const usdcDecimals = 6; // USDC typically has 6 decimals
     const usdcMintAuthority = provider.wallet as anchor.Wallet;
-    const usdcMintLen = getMintLen([]); // Assuming USDC mint has no extensions
+    const usdcMintLen = getMintLen([ExtensionType.MetadataPointer]); // Assuming USDC mint has Metadata extension
 
 
     // Generate new keypairs for HolderA and HolderB
@@ -149,8 +162,25 @@ describe("lending-pool", () => {
 
     it("Creates a dummy USDC Mint account", async () => {
 
+        const metaData: TokenMetadata = {
+            mint: usdcMint,
+            updateAuthority: usdcMintAuthority.publicKey,
+            name: "USDC",
+            symbol: "USDC",
+            uri: "",
+            additionalMetadata: [["Notice", "This is a dummy USDC mint for testing purposes only"]],
+        };
+
+        // Size of MetadataExtension 2 bytes for type, 2 bytes for length
+        const metadataExtension = TYPE_SIZE + LENGTH_SIZE;
+
+        // Size of metadata
+        const metadataLen = pack(metaData).length;
+
         // Minimum lamports required for USDC Mint Account
-        const usdcLamports = await connection.getMinimumBalanceForRentExemption(usdcMintLen);
+        const usdcLamports = await connection.getMinimumBalanceForRentExemption(
+            usdcMintLen + metadataExtension + metadataLen,
+        );
 
         // Instruction to invoke System Program to create new account
         const createUsdcAccountInstruction = SystemProgram.createAccount({
@@ -161,6 +191,15 @@ describe("lending-pool", () => {
             programId: TOKEN_2022_PROGRAM_ID, // Program assigned as owner of created account
         });
 
+        // Instruction to initialize the MetadataPointer Extension
+        const initializeMetadataPointerInstruction =
+            createInitializeMetadataPointerInstruction(
+                usdcMint, // Mint Account address 
+                usdcMintAuthority.publicKey, // Authority that can set the metadata address
+                usdcMint, // Account address that holds the metadata
+                TOKEN_2022_PROGRAM_ID,
+            );
+
         // Instruction to initialize Mint Account data
         const initializeUsdcMintInstruction = createInitializeMintInstruction(
             usdcMint, // Mint Account Address
@@ -170,10 +209,34 @@ describe("lending-pool", () => {
             TOKEN_2022_PROGRAM_ID, // Token Extension Program ID
         );
 
+        // Instruction to initialize Metadata Account data
+        const initializeMetadataInstruction = createInitializeInstruction({
+            programId: TOKEN_2022_PROGRAM_ID, // Token Extension Program as Metadata Program
+            metadata: metaData.mint, // Account address that holds the metadata
+            updateAuthority: metaData.updateAuthority, // Authority that can update the metadata
+            mint: metaData.mint, // Mint Account address
+            mintAuthority: usdcMintAuthority.publicKey, // Designated Mint Authority
+            name: metaData.name,
+            symbol: metaData.symbol,
+            uri: metaData.uri,
+        });
+
+        // Instruction to update metadata, adding custom field
+        const updateFieldInstruction = createUpdateFieldInstruction({
+            programId: TOKEN_2022_PROGRAM_ID, // Token Extension Program as Metadata Program
+            metadata: metaData.mint, // Account address that holds the metadata
+            updateAuthority: metaData.updateAuthority, // Authority that can update the metadata
+            field: metaData.additionalMetadata[0][0], // key
+            value: metaData.additionalMetadata[0][1], // value
+        });
+
         // Add instructions to new transaction
         const usdcTransaction = new Transaction().add(
             createUsdcAccountInstruction,
+            initializeMetadataPointerInstruction,
             initializeUsdcMintInstruction,
+            initializeMetadataInstruction,
+            updateFieldInstruction
         );
 
         // Send transaction
@@ -181,9 +244,16 @@ describe("lending-pool", () => {
             connection,
             usdcTransaction,
             [payer.payer, usdcMintKeypair], // Signers
+            {
+                commitment: "confirmed",
+            },
         );
 
         logTransactionSignature(usdcTransactionSignature);
+
+        const downloadedMetadata: TokenMetadata = await getTokenMetadata(connection, usdcMint, "confirmed", TOKEN_2022_PROGRAM_ID);
+        console.log("Downloaded Metadata:", downloadedMetadata);
+
 
         // Create a new throw-away ATA for testing
         const throwAwayATA = await createAssociatedTokenAccount(
