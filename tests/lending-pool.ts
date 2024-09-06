@@ -24,7 +24,6 @@ import {
     createSetAuthorityInstruction,
     AuthorityType,
     createInitializeMetadataPointerInstruction,
-    getMetadataPointerState,
     getTokenMetadata,
     TYPE_SIZE,
     LENGTH_SIZE,
@@ -43,7 +42,7 @@ function logTransactionSignature(transactionSignature: string) {
     const cluster = "custom&customUrl=http%3A%2F%2Flocalhost%3A8899";
 
     console.log(
-        `https://explorer.solana.com/tx/${transactionSignature}?cluster=${cluster}`,
+        `\thttps://explorer.solana.com/tx/${transactionSignature}?cluster=${cluster}\n`,
     );
 }
 
@@ -68,7 +67,7 @@ describe("lending-pool", () => {
     // Max value = 32,767 (i16)
     const iSolRate = 0;
     // Size of Mint Account with extension
-    const iSolMintLen = getMintLen([ExtensionType.InterestBearingConfig]);
+    const iSolMintLen = getMintLen([ExtensionType.InterestBearingConfig, ExtensionType.MetadataPointer]);
 
     // Generate new keypair for USDC Mint Account
     const usdcMintKeypair = Keypair.generate();
@@ -299,10 +298,28 @@ describe("lending-pool", () => {
         await connection.requestAirdrop(holderB.publicKey, totalAirdropHolderB); // 3 SOL + rent exemption
     });
 
-    it("Creates a token Mint account with Interest Bearing extension", async () => {
+    it("Creates a token Mint account with Interest Bearing and Metadata extensions", async () => {
 
-        // Minimum lamports required for Mint Account
-        const lamports = await connection.getMinimumBalanceForRentExemption(iSolMintLen);
+        // Metadata for iSOL
+        const metaData: TokenMetadata = {
+            mint: iSolMint,
+            updateAuthority: iSolMintAuthority,
+            name: "iSOL",
+            symbol: "iSOL",
+            uri: "",
+            additionalMetadata: [["Notice", "This is a 1:1 iSOL mint for testing purposes only"]],
+        };
+
+        // Size of MetadataExtension 2 bytes for type, 2 bytes for length
+        const metadataExtension = TYPE_SIZE + LENGTH_SIZE;
+
+        // Size of metadata
+        const metadataLen = pack(metaData).length;
+
+        // Minimum lamports required for Mint Account with metadata
+        const lamports = await connection.getMinimumBalanceForRentExemption(
+            iSolMintLen + metadataExtension + metadataLen,
+        );
 
         // Instruction to invoke System Program to create new account
         const createAccountInstruction = SystemProgram.createAccount({
@@ -331,11 +348,44 @@ describe("lending-pool", () => {
             TOKEN_2022_PROGRAM_ID, // Token Extension Program ID
         );
 
+        // Instruction to initialize the MetadataPointer Extension
+        const initializeMetadataPointerInstruction =
+            createInitializeMetadataPointerInstruction(
+                iSolMint, // Mint Account address 
+                iSolMintAuthority, // Authority that can set the metadata address
+                iSolMint, // Account address that holds the metadata
+                TOKEN_2022_PROGRAM_ID,
+            );
+
+        // Instruction to initialize Metadata Account data
+        const initializeMetadataInstruction = createInitializeInstruction({
+            programId: TOKEN_2022_PROGRAM_ID, // Token Extension Program as Metadata Program
+            metadata: metaData.mint, // Account address that holds the metadata
+            updateAuthority: metaData.updateAuthority, // Authority that can update the metadata
+            mint: metaData.mint, // Mint Account address
+            mintAuthority: iSolMintAuthority, // Designated Mint Authority
+            name: metaData.name,
+            symbol: metaData.symbol,
+            uri: metaData.uri,
+        });
+
+        // Instruction to update metadata, adding custom field
+        const updateFieldInstruction = createUpdateFieldInstruction({
+            programId: TOKEN_2022_PROGRAM_ID, // Token Extension Program as Metadata Program
+            metadata: metaData.mint, // Account address that holds the metadata
+            updateAuthority: metaData.updateAuthority, // Authority that can update the metadata
+            field: metaData.additionalMetadata[0][0], // key
+            value: metaData.additionalMetadata[0][1], // value
+        });
+
         // Add instructions to new transaction
         const transaction = new Transaction().add(
             createAccountInstruction,
             initializeInterestBearingMintInstruction,
+            initializeMetadataPointerInstruction,
             initializeMintInstruction,
+            initializeMetadataInstruction,
+            updateFieldInstruction
         );
 
         // Send transaction
@@ -387,10 +437,11 @@ describe("lending-pool", () => {
             [payer.payer],
         );
 
+        console.log(`\tAssigning iSOL Mint authority to PDA: ${pda_iSolMintAuthority.toBase58()}`);
+        iSolMintAuthority = pda_iSolMintAuthority;
+
         logTransactionSignature(setAuthoritySignature);
 
-        iSolMintAuthority = pda_iSolMintAuthority;
-        console.log(`iSOL Mint authority set to PDA: ${iSolMintAuthority.toBase58()}`);
     });
 
     it("Registers depositors", async () => {
@@ -478,8 +529,8 @@ describe("lending-pool", () => {
             TOKEN_2022_PROGRAM_ID, // Token Extension Program ID
         );
 
-        console.log(`HolderA Balance: ${holderA_iSolBalanceInSOL} iSOL = ${holderA_AccruedValueAmount} SOL`);
-        console.log(`HolderB Balance: ${holderB_iSolBalanceInSOL} iSOL = ${holderB_AccruedValueAmount} SOL`);
+        console.log(`\tHolderA Balance: ${holderA_iSolBalanceInSOL} iSOL = ${holderA_AccruedValueAmount} SOL`);
+        console.log(`\tHolderB Balance: ${holderB_iSolBalanceInSOL} iSOL = ${holderB_AccruedValueAmount} SOL`);
     });
 
     it("BorrowerA borrows SOL using USDC as collateral", async () => {
@@ -489,11 +540,11 @@ describe("lending-pool", () => {
         const totalAirdropBorrowerA = rentExemptionForSystemAccount + rentExemptionForTokenAccount;
 
         // Airdrop SOL to BorrowerA for transaction fees and rent exemption
-        console.log("Funding BorrowerA with rent-exemption SOL...");
+        console.log("\tFunding BorrowerA with rent-exemption SOL...");
         await connection.requestAirdrop(borrowerA.publicKey, totalAirdropBorrowerA);
 
         // Create BorrowerA's ATA for USDC
-        console.log("Creating BorrowerA's ATA for USDC...");
+        console.log("\tCreating BorrowerA's ATA for USDC...");
         await createAssociatedTokenAccount(
             connection,
             payer.payer,
@@ -566,7 +617,7 @@ describe("lending-pool", () => {
             const currentRate = interestBearingConfig.currentRate;
             const currentRatePercentage = currentRate / RATE_DECIMALS;
             expect(currentRatePercentage).equals(69.3, "Utilization rate 69.3%.");
-            console.log(`Current interest rate: ${currentRate} basis points (${currentRatePercentage}%)`);
+            console.log(`\tCurrent interest rate: ${currentRate} basis points (${currentRatePercentage}%)`);
         } else {
             throw new Error("InterestBearingConfig not found on iSOL mint");
         }
@@ -583,9 +634,9 @@ describe("lending-pool", () => {
         expect(loanRecordAccount.amount.toNumber()).to.equal(expectedTotalAmount);
         expect(loanRecordAccount.expirationTime.toNumber()).to.be.greaterThan(0);
 
-        console.log(`Borrowed amount: ${borrowAmountNumber / LAMPORTS_PER_SOL} SOL`);
-        console.log(`Interest amount: ${interestAmount / LAMPORTS_PER_SOL} SOL`);
-        console.log(`Total amount to repay: ${expectedTotalAmount / LAMPORTS_PER_SOL} SOL`);
+        console.log(`\tBorrowed amount: ${borrowAmountNumber / LAMPORTS_PER_SOL} SOL`);
+        console.log(`\tInterest amount: ${interestAmount / LAMPORTS_PER_SOL} SOL`);
+        console.log(`\tTotal amount to repay: ${expectedTotalAmount / LAMPORTS_PER_SOL} SOL`);
     });
 
     it("Holders double iSOL appreciation after 1 year", async () => {
@@ -598,7 +649,7 @@ describe("lending-pool", () => {
         const uiAmountA = await amountToUiAmountAtTimestamp(Number(holderAiSolBalance.value.amount), oneYearFromNow);
         const actualUiAmountA = Number(uiAmountA);
         const expectedUiAmountA = (depositorALamports * 2) / LAMPORTS_PER_SOL;
-        console.log(`HolderA's iSOL balance in SOL 1 YEAR FROM NOW: ${actualUiAmountA} (approx. ${expectedUiAmountA.toFixed()} SOL)`);
+        console.log(`\tHolderA's iSOL balance in SOL 1 YEAR FROM NOW: ${actualUiAmountA} (approx. ${expectedUiAmountA.toFixed()} SOL)`);
 
         expect(Math.abs(actualUiAmountA - expectedUiAmountA)).is.lessThan(EPSILON);
 
@@ -606,7 +657,7 @@ describe("lending-pool", () => {
         const uiAmountB = await amountToUiAmountAtTimestamp(Number(holderBiSolBalance.value.amount), oneYearFromNow);
         const actualUiAmountB = Number(uiAmountB);
         const expectedUiAmountB = (depositorBLamports * 2) / LAMPORTS_PER_SOL;
-        console.log(`HolderB's iSOL balance in SOL 1 YEAR FROM NOW: ${actualUiAmountB} (approx. ${expectedUiAmountB.toFixed()} SOL)`);
+        console.log(`\tHolderB's iSOL balance in SOL 1 YEAR FROM NOW: ${actualUiAmountB} (approx. ${expectedUiAmountB.toFixed()} SOL)`);
 
         expect(Math.abs(actualUiAmountB - expectedUiAmountB)).is.lessThan(EPSILON);
     });
