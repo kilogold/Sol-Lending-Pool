@@ -65,7 +65,7 @@ flowchart TD
 ### Lending pool states
 ```mermaid
 %%{init: {'themeVariables': { 'pie1': '#000000', 'pie2': '#440044', 'pie3': '#882288', 'pie4': '#444444', 'pie5': '#800080', 'pie6': '#ff0000', 'pie7': '#FFA500'}}}%%
-pie showdata title Step1: SOL Lending Pool Init
+pie title Step1: SOL Lending Pool Init
     "HolderA" : 2
     "HolderB" : 3
 ```
@@ -85,7 +85,7 @@ pie showdata title Step1: SOL Lending Pool Init
 'pie5': '#800080', 
 'pie6': '#ff0000', 
 'pie7': '#FFA500'}}}%%
-pie showdata title Step2: SOL Lending Pool Borrow
+pie title Step2: SOL Lending Pool Borrow
     "HolderB-Loaned" : 2.079
     "HolderA-Loaned" : 1.386
     "HolderB" : 0.921
@@ -105,7 +105,7 @@ pie showdata title Step2: SOL Lending Pool Borrow
 
 ```mermaid
 %%{init: {'themeVariables': { 'pie1': '#000000', 'pie2': '#440044', 'pie3': '#882288', 'pie4': '#444444', 'pie5': '#800080', 'pie6': '#ff0000', 'pie7': '#FFA500'}}}%%
-pie showdata title Step3: SOL Lending Pool Repaid
+pie title Step3: SOL Lending Pool Repaid
     "HolderA" : 4
     "HolderB" : 6
 ```
