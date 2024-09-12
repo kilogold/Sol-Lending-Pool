@@ -478,7 +478,7 @@ describe("lending-pool", () => {
         // Deposit SOL into the lending pool and mint iSOL tokens
         // This part will depend on your lending pool program's implementation
         // Assuming you have a deposit method in your program
-        await program.methods.deposit(new anchor.BN(depositorALamports)) // 2 SOL
+        const txn1 = await program.methods.deposit(new anchor.BN(depositorALamports)) // 2 SOL
             .accountsStrict({
                 depositor: holderA.publicKey,
                 isolMint: iSolMint,
@@ -491,8 +491,9 @@ describe("lending-pool", () => {
             })
             .signers([holderA])
             .rpc();
+        logTransactionSignature(txn1);
 
-        await program.methods.deposit(new anchor.BN(depositorBLamports)) // 3 SOL
+        const txn2 = await program.methods.deposit(new anchor.BN(depositorBLamports)) // 3 SOL
             .accountsStrict({
                 depositor: holderB.publicKey,
                 isolMint: iSolMint,
@@ -505,7 +506,8 @@ describe("lending-pool", () => {
             })
             .signers([holderB])
             .rpc();
-
+        logTransactionSignature(txn2);
+        
         // Check balances of iSOL tokens in HolderA and HolderB's ATAs
         const holderA_iSolBalance = await connection.getTokenAccountBalance(holderAATA);
         const holderB_iSolBalance = await connection.getTokenAccountBalance(holderBATA);
@@ -660,5 +662,32 @@ describe("lending-pool", () => {
         console.log(`\tHolderB's iSOL balance in SOL 1 YEAR FROM NOW: ${actualUiAmountB} (approx. ${expectedUiAmountB.toFixed()} SOL)`);
 
         expect(Math.abs(actualUiAmountB - expectedUiAmountB)).is.lessThan(EPSILON);
+    });
+
+    it("Queries HolderA's accrued value and verifies accumulation over time", async () => {
+        const holderAiSolBalance = await connection.getTokenAccountBalance(holderAATA);
+        const initialUiAmount = await amountToUiAmount(
+            connection,
+            payer.payer,
+            iSolMint,
+            BigInt(holderAiSolBalance.value.amount),
+            TOKEN_2022_PROGRAM_ID
+        );
+        console.log(`\tInitial HolderA's iSOL balance in SOL: ${initialUiAmount}`);
+
+        // Wait for one second
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        const laterUiAmount = await amountToUiAmount(
+            connection,
+            payer.payer,
+            iSolMint,
+            BigInt(holderAiSolBalance.value.amount),
+            TOKEN_2022_PROGRAM_ID
+        );
+        console.log(`\tLater HolderA's iSOL balance in SOL: ${laterUiAmount}`);
+
+        // Assert that the return values are different
+        expect(Number(laterUiAmount)).to.be.greaterThan(Number(initialUiAmount), "Value should accumulate over time");
     });
 });
